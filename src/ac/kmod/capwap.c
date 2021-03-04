@@ -3,6 +3,7 @@
 #include <linux/if_ether.h>
 #include <linux/etherdevice.h>
 #include <linux/ieee80211.h>
+#include <linux/version.h>
 #include "socket.h"
 #include "capwap.h"
 #include "nlsmartcapwap.h"
@@ -50,8 +51,13 @@ static void sc_capwap_defrag_evictor(struct sc_capwap_session* session, ktime_t 
 		if (!list_empty(list)) {
 			fragment = list_first_entry(list, struct sc_capwap_fragment, lru_list);
 			delta = ktime_sub(now, fragment->tstamp);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 			if ((delta.tv64 < -NSEC_PER_SEC) || (delta.tv64 > NSEC_PER_SEC)) {
 				TRACEKMOD("*** Expired fragment %hu (%llu %llu)\n", fragment->fragmentid, now.tv64, fragment->tstamp.tv64);
+#else
+			if ((delta < -NSEC_PER_SEC) || (delta > NSEC_PER_SEC)) {
+				TRACEKMOD("*** Expired fragment %hu (%llu %llu)\n", fragment->fragmentid, now, fragment->tstamp);
+#endif
 				sc_capwap_fragment_free(fragment);
 			}
 		}
@@ -219,8 +225,11 @@ static struct sk_buff* sc_capwap_defrag(struct sc_capwap_session* session, struc
 	} else {
 		/* Update timeout */
 		fragment->tstamp = skb->tstamp;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 		TRACEKMOD("*** Fragment id %hu expire at %llu\n", frag_id, fragment->tstamp.tv64);
-
+#else
+		TRACEKMOD("*** Fragment id %hu expire at %llu\n", frag_id, fragment->tstamp);
+#endif
 		/* Set LRU timeout */
 		if (!list_is_last(&fragment->lru_list, &session->fragments.lru_list)) {
 			list_move_tail(&fragment->lru_list, &session->fragments.lru_list);
@@ -573,7 +582,11 @@ int sc_capwap_parsingpacket(struct sc_capwap_session* session, const union capwa
 			headersize -= msglength;
 		}
 	} else if (session) {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 		if (!skb->tstamp.tv64) {
+#else
+		if (!skb->tstamp) {
+#endif
 			skb->tstamp = ktime_get();
 		}
 

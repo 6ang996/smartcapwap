@@ -35,7 +35,7 @@ static int sc_socket_create(int type, union capwap_addr* sockaddr, uint16_t prot
 	TRACEKMOD("### sc_socket_create\n");
 
 	/* Create socket */
-	ret = sock_create_kern(sockaddr->ss.ss_family, SOCK_DGRAM, protocol, &sc_sockets[type]);
+	ret = sock_create_kern(&init_net, sockaddr->ss.ss_family, SOCK_DGRAM, protocol, &sc_sockets[type]);
 	if (ret) {
 		return ret;
 	}

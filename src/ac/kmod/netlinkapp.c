@@ -19,30 +19,18 @@
 static u32 sc_netlink_usermodeid;
 
 /* */
-static int sc_netlink_pre_doit(struct genl_ops* ops, struct sk_buff* skb, struct genl_info* info);
-static void sc_netlink_post_doit(struct genl_ops* ops, struct sk_buff* skb, struct genl_info* info);
-
-/* Netlink Family */
-static struct genl_family sc_netlink_family = {
-	.id = GENL_ID_GENERATE,
-	.name = NLSMARTCAPWAP_GENL_NAME,
-	.hdrsize = 0,
-	.version = 1,
-	.maxattr = NLSMARTCAPWAP_ATTR_MAX,
-	.netnsok = true,
-	.pre_doit = sc_netlink_pre_doit,
-	.post_doit = sc_netlink_post_doit,
-};
-
+static int sc_netlink_pre_doit(const struct genl_ops* ops, struct sk_buff* skb, struct genl_info* info);
+static void sc_netlink_post_doit(const struct genl_ops* ops, struct sk_buff* skb, struct genl_info* info);
+static int sc_netlink_add_iface(struct sk_buff* skb, struct genl_info* info);
 /* */
-static int sc_netlink_pre_doit(struct genl_ops* ops, struct sk_buff* skb, struct genl_info* info) {
+static int sc_netlink_pre_doit(const struct genl_ops* ops, struct sk_buff* skb, struct genl_info* info) {
 	TRACEKMOD("### sc_netlink_pre_doit: %d\n", (int)ops->cmd);
 
 	return 0;
 }
 
 /* */
-static void sc_netlink_post_doit(struct genl_ops* ops, struct sk_buff* skb, struct genl_info* info) {
+static void sc_netlink_post_doit(const struct genl_ops* ops, struct sk_buff* skb, struct genl_info* info) {
 	TRACEKMOD("### sc_netlink_post_doit: %d\n", (int)ops->cmd);
 }
 
@@ -311,67 +299,6 @@ static int sc_netlink_link(struct sk_buff* skb, struct genl_info* info) {
 }
 
 /* */
-static int sc_netlink_add_iface(struct sk_buff* skb, struct genl_info* info) {
-	int err;
-	void* hdr;
-	uint16_t mtu;
-	int ifindex;
-	struct sk_buff *msg;
-
-	TRACEKMOD("### sc_netlink_add_iface\n");
-
-	/* Check Link */
-	if (!sc_netlink_usermodeid) {
-		return -ENOLINK;
-	}
-
-	/* */
-	if (!info->attrs[NLSMARTCAPWAP_ATTR_IFPHY_NAME] || !info->attrs[NLSMARTCAPWAP_ATTR_MTU]) {
-		return -EINVAL;
-	}
-
-	/* */
-	mtu = nla_get_u16(info->attrs[NLSMARTCAPWAP_ATTR_MTU]);
-	if ((mtu < MIN_MTU) || (mtu > MAX_MTU)) {
-		return -EINVAL;
-	}
-
-	/* */
-	ifindex = sc_iface_create((char*)nla_data(info->attrs[NLSMARTCAPWAP_ATTR_IFPHY_NAME]), mtu);
-	if (ifindex < 0) {
-		return ifindex;
-	}
-
-	/* Send response */
-	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
-	if (!msg) {
-		err = -ENOMEM;
-		goto error;
-	}
-
-	hdr = genlmsg_put(msg, info->snd_portid, info->snd_seq, &sc_netlink_family, 0, NLSMARTCAPWAP_CMD_ADD_IFACE);
-	if (IS_ERR(hdr)) {
-		err = PTR_ERR(hdr);
-		goto error2;
-	}
-
-	if (nla_put_u32(msg, NLSMARTCAPWAP_ATTR_IFPHY_INDEX, (uint32_t)ifindex)) {
-		err = -ENOBUFS;
-		goto error2;
-	}
-
-	genlmsg_end(msg, hdr);
-	return genlmsg_reply(msg, info);
-
-error2:
-	nlmsg_free(msg);
-
-error:
-	sc_iface_delete((uint32_t)ifindex);
-	return err;
-}
-
-/* */
 static int sc_netlink_delete_iface(struct sk_buff* skb, struct genl_info* info) {
 	TRACEKMOD("### sc_netlink_delete_iface\n");
 
@@ -500,10 +427,89 @@ static struct genl_ops sc_netlink_ops[] = {
 	},
 };
 
+/* Netlink Family */
+static struct genl_family sc_netlink_family = {
+//	.id = GENL_ID_GENERATE,
+	.name = NLSMARTCAPWAP_GENL_NAME,
+	.hdrsize = 0,
+	.version = 1,
+	.maxattr = NLSMARTCAPWAP_ATTR_MAX,
+	.netnsok = true,
+	.pre_doit = sc_netlink_pre_doit,
+	.post_doit = sc_netlink_post_doit,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,10,0)
+	.module = THIS_MODULE,
+	.ops = sc_netlink_ops,
+	.n_ops = ARRAY_SIZE(sc_netlink_ops),
+#endif
+};
+
 /* Netlink notify */
 static struct notifier_block sc_netlink_notifier = {
 	.notifier_call = sc_netlink_notify,
 };
+
+
+/* */
+static int sc_netlink_add_iface(struct sk_buff* skb, struct genl_info* info) {
+	int err;
+	void* hdr;
+	uint16_t mtu;
+	int ifindex;
+	struct sk_buff *msg;
+
+	TRACEKMOD("### sc_netlink_add_iface\n");
+
+	/* Check Link */
+	if (!sc_netlink_usermodeid) {
+		return -ENOLINK;
+	}
+
+	/* */
+	if (!info->attrs[NLSMARTCAPWAP_ATTR_IFPHY_NAME] || !info->attrs[NLSMARTCAPWAP_ATTR_MTU]) {
+		return -EINVAL;
+	}
+
+	/* */
+	mtu = nla_get_u16(info->attrs[NLSMARTCAPWAP_ATTR_MTU]);
+	if ((mtu < MIN_MTU) || (mtu > MAX_MTU)) {
+		return -EINVAL;
+	}
+
+	/* */
+	ifindex = sc_iface_create((char*)nla_data(info->attrs[NLSMARTCAPWAP_ATTR_IFPHY_NAME]), mtu);
+	if (ifindex < 0) {
+		return ifindex;
+	}
+
+	/* Send response */
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	if (!msg) {
+		err = -ENOMEM;
+		goto error;
+	}
+
+	hdr = genlmsg_put(msg, info->snd_portid, info->snd_seq, &sc_netlink_family, 0, NLSMARTCAPWAP_CMD_ADD_IFACE);
+	if (IS_ERR(hdr)) {
+		err = PTR_ERR(hdr);
+		goto error2;
+	}
+
+	if (nla_put_u32(msg, NLSMARTCAPWAP_ATTR_IFPHY_INDEX, (uint32_t)ifindex)) {
+		err = -ENOBUFS;
+		goto error2;
+	}
+
+	genlmsg_end(msg, hdr);
+	return genlmsg_reply(msg, info);
+
+error2:
+	nlmsg_free(msg);
+
+error:
+	sc_iface_delete((uint32_t)ifindex);
+	return err;
+}
 
 /* */
 int sc_netlink_notify_recv_keepalive(const union capwap_addr* sockaddr, struct sc_capwap_sessionid_element* sessionid) {
@@ -560,7 +566,7 @@ int sc_netlink_notify_recv_data(struct sc_capwap_sessionid_element* sessionid, u
 	}
 
 	/* */
-	if (nla_put(sk_msg, NLSMARTCAPWAP_ATTR_SESSION_ID, sizeof(struct sc_capwap_sessionid_element), sessionid) || 
+	if (nla_put(sk_msg, NLSMARTCAPWAP_ATTR_SESSION_ID, sizeof(struct sc_capwap_sessionid_element), sessionid) ||
 		nla_put(sk_msg, NLSMARTCAPWAP_ATTR_DATA_FRAME, length, packet)) {
 		goto error2;
 	}
@@ -585,8 +591,10 @@ int sc_netlink_init(void) {
 	/* Register netlink family */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,12,0)
 	ret = genl_register_family_with_ops(&sc_netlink_family, sc_netlink_ops, sizeof(sc_netlink_ops) / sizeof(sc_netlink_ops[0]));
-#else
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 	ret = genl_register_family_with_ops(&sc_netlink_family, sc_netlink_ops);
+#else
+	ret = genl_register_family(&sc_netlink_family);
 #endif
 	if (ret) {
 		return ret;
